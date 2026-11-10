@@ -15,28 +15,36 @@ validated (`terraform validate`) and scanned (`trivy config`) offline.
 
 ## Applying
 
-1. Configure credentials (default region `eu-west-2`; opt-in regions such as `af-south-1` must be enabled on the account first).
-2. `terraform init && terraform plan`, review, `terraform apply`.
-3. Populate the JWT secrets out of band (never through Terraform state):
-   `aws secretsmanager put-secret-value --secret-id sentinelpay-dev/jwt-public-key-b64 ...`
-4. Copy the `ecr_registry` and `github_deploy_role_arn` outputs into
-   `.github/workflows/ci.yml` (placeholders already replaced with account `723799951407` / `eu-west-2`).
-5. Move state to S3 (see the commented backend in `versions.tf`).
+1. Configure credentials (`AWS_PROFILE`); default region `eu-west-2` (opt-in
+   regions such as `af-south-1` must be enabled on the account first). The
+   account must be on a paid AWS plan: the Free plan blocks RDS backups above
+   1 day, GuardDuty, Security Hub and ElastiCache.
+2. **State backend (once):** `cd bootstrap && terraform init && terraform apply`
+   creates the encrypted, versioned state bucket (its own KMS key; S3 native
+   locking, no DynamoDB). Bootstrap keeps a tiny local state file that holds no
+   secrets and is git-ignored. Then `terraform init` here uses the S3 backend.
+3. `terraform plan -out=x.tfplan`, review, `terraform apply x.tfplan`.
+4. Populate the JWT secrets out of band (never through Terraform state):
+   generate an RSA key pair and `aws secretsmanager put-secret-value` the
+   base64 of each into `sentinelpay-dev/jwt-private-key-b64` and
+   `sentinelpay-dev/jwt-public-key-b64`.
+5. Apply the schema (tables only, never the demo data) with
+   `scripts/db_admin.sh schema`, then create the first admin deliberately.
+6. Per-service database roles (two-phase): on a fresh account apply with
+   `-var service_db_roles=false`, run `scripts/db_admin.sh roles`, set
+   `service_db_roles = true` (the default), apply, redeploy. The services image must already
+   contain the `ensure_audit_table` fix.
 
-## Known gaps before this can serve traffic
+## Known gaps
 
-- **App config.** The services read `DATABASE_URL` and `REDIS_URL`; the task
-  definitions inject `DB_HOST/DB_USER/DB_PASSWORD/REDIS_HOST/REDIS_AUTH_TOKEN`
-  from Secrets Manager (ECS cannot compose a URL). The apps need a small change
-  to build those URLs (`sslmode=require`, `rediss://`).
-- **Shared DB credential.** Both services currently use the RDS master user.
-  The target state wants one least-privilege DB role per service, created by a
-  post-apply migration step.
-- **TLS.** Set `certificate_arn`; without it the ALB serves HTTP only.
-- **Automated response.** High-severity GuardDuty findings go to SNS; the
-  disable-IAM-user / quarantine-task Lambda and the honeytoken key are not
-  built yet (Week 3 purple-team scope).
-- **Image tags.** ECR tags are mutable until CI stops pushing `:latest`.
+- **TLS.** Set `certificate_arn` once a domain exists; without it the ALB serves
+  HTTP only.
+- **Image tags.** ECR tags are mutable until the deploy job registers task
+  definitions by commit SHA (Week 3).
+- **Honeytoken.** Its access key is in Terraform state (now encrypted in S3).
+  EventBridge only sees this region plus global events, so a call to another
+  region's endpoint would not fire the rule.
+- **Cost.** The stack bills continuously; destroy when finished (below).
 
 ## Tearing down
 

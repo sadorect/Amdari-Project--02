@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.10"
 
   required_providers {
     aws = {
@@ -16,15 +16,15 @@ terraform {
     }
   }
 
-  # Local state until the AWS account exists. Once it does, run
-  # bootstrap/ (creates the encrypted, versioned state bucket and lock
-  # table), then uncomment this block and `terraform init -migrate-state`.
-  #
-  # backend "s3" {
-  #   bucket         = "sentinelpay-tfstate-<account-id>"
-  #   key            = "sentinelpay/terraform.tfstate"
-  #   region         = "eu-west-2"
-  #   dynamodb_table = "sentinelpay-tfstate-lock"
-  #   encrypt        = true
-  # }
+  # State lives in S3 (created by bootstrap/): encrypted with its own KMS key,
+  # versioned, locked with S3 native lockfiles. The bucket name carries the
+  # account id; change it if this stack is ever deployed to another account.
+  backend "s3" {
+    bucket       = "sentinelpay-tfstate-723799951407"
+    key          = "sentinelpay/terraform.tfstate"
+    region       = "eu-west-2"
+    encrypt      = true
+    kms_key_id   = "alias/sentinelpay-tfstate"
+    use_lockfile = true
+  }
 }

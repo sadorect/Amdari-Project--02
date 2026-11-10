@@ -15,7 +15,8 @@ evidence/week1/scans/*.json
 docker-compose.override.yml
 
 # Terraform
-terraform/.terraform/
-terraform/*.tfstate*
-terraform/*.tfplan
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
 terraform/.build/
