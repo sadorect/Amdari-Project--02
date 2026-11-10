@@ -75,3 +75,9 @@ variable "db_backup_retention_days" {
   type        = number
   default     = 14
 }
+
+variable "service_db_roles" {
+  description = "false: app tasks still use the RDS master secret (bootstrap). true: each service uses its own least-privilege Postgres role from sentinelpay-<env>/db/<service>. Flip to true only after scripts/db_admin.sh roles has populated those secrets."
+  type        = bool
+  default     = false
+}

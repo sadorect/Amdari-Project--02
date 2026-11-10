@@ -159,12 +159,16 @@ data "aws_iam_policy_document" "execution" {
   }
   statement {
     actions = ["secretsmanager:GetSecretValue"]
-    resources = [
-      aws_db_instance.this.master_user_secret[0].secret_arn,
-      aws_secretsmanager_secret.redis_auth.arn,
-      aws_secretsmanager_secret.jwt_public.arn,
-      aws_secretsmanager_secret.jwt_private.arn,
-    ]
+    # The master credential is only readable here during bootstrap
+    # (service_db_roles = false); afterwards only the db-admin task has it.
+    resources = concat(
+      var.service_db_roles ? [for s in aws_secretsmanager_secret.db_app : s.arn] : [aws_db_instance.this.master_user_secret[0].secret_arn],
+      [
+        aws_secretsmanager_secret.redis_auth.arn,
+        aws_secretsmanager_secret.jwt_public.arn,
+        aws_secretsmanager_secret.jwt_private.arn,
+      ],
+    )
   }
   statement {
     actions   = ["kms:Decrypt"]

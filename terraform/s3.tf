@@ -208,6 +208,41 @@ data "aws_iam_policy_document" "logs" {
   }
 
   statement {
+    sid       = "ConfigAclCheck"
+    actions   = ["s3:GetBucketAcl", "s3:ListBucket"]
+    resources = [aws_s3_bucket.logs.arn]
+    principals {
+      type        = "Service"
+      identifiers = ["config.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account_id]
+    }
+  }
+
+  statement {
+    sid       = "ConfigWrite"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.logs.arn}/config/AWSLogs/${local.account_id}/*"]
+    principals {
+      type        = "Service"
+      identifiers = ["config.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account_id]
+    }
+  }
+
+  statement {
     sid       = "VpcFlowLogsWrite"
     actions   = ["s3:PutObject"]
     resources = ["${aws_s3_bucket.logs.arn}/vpc-flow/*"]

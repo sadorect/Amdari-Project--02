@@ -21,6 +21,12 @@ def ensure_audit_table():
     conn = get_connection()
     cur = conn.cursor()
     try:
+        # A least-privilege service role (no CREATE on the schema) fails on
+        # CREATE TABLE IF NOT EXISTS even when the table exists, so only
+        # attempt the create when the migration has not already made it.
+        cur.execute("SELECT to_regclass('public.audit_log')")
+        if cur.fetchone()["to_regclass"] is not None:
+            return
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS audit_log (

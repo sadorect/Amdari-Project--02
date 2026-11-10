@@ -286,8 +286,8 @@ resource "aws_ecs_task_definition" "this" {
     ], each.key == "kyc-api" ? [{ name = "KYC_BUCKET", value = aws_s3_bucket.kyc.id }] : [])
 
     secrets = concat([
-      { name = "DB_USER", valueFrom = "${aws_db_instance.this.master_user_secret[0].secret_arn}:username::" },
-      { name = "DB_PASSWORD", valueFrom = "${aws_db_instance.this.master_user_secret[0].secret_arn}:password::" },
+      { name = "DB_USER", valueFrom = "${local.db_secret_arn[each.key]}:username::" },
+      { name = "DB_PASSWORD", valueFrom = "${local.db_secret_arn[each.key]}:password::" },
       { name = "REDIS_AUTH_TOKEN", valueFrom = aws_secretsmanager_secret.redis_auth.arn },
       { name = "JWT_PUBLIC_KEY_B64", valueFrom = aws_secretsmanager_secret.jwt_public.arn },
     ], each.key == "payments-api" ? [{ name = "JWT_PRIVATE_KEY_B64", valueFrom = aws_secretsmanager_secret.jwt_private.arn }] : [])
