@@ -42,6 +42,12 @@ data "aws_iam_policy_document" "db_admin_execution" {
     actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
     resources = [aws_ecr_repository.this["kyc-api"].arn]
   }
+  # GuardDuty runtime monitoring injects its agent as a sidecar and the
+  # execution role pulls it from the AWS-owned repo.
+  statement {
+    actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+    resources = ["arn:aws:ecr:${var.region}:892757235363:repository/aws-guardduty-agent-fargate"]
+  }
   statement {
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
     resources = ["${aws_cloudwatch_log_group.db_admin.arn}:*"]

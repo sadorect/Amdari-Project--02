@@ -9,10 +9,10 @@ the cloud findings `V-CLD-01` to `V-CLD-08`, and the infrastructure half of
 bucket. Both services run healthy behind the load balancer, built and shipped
 by a green pipeline. A second tranche of hardening (PR #45) is applied: AWS
 Config, the honeytoken, the response Lambda and the database-role plumbing are
-live. **The per-service database roles are not yet in use**: the roles have not
-been created and the services still connect as the master user, pending the
-cutover in §6. PR #45 itself is not merged, so `main` is one step behind the
-account.
+live, and the **per-service database roles are now in force**: both services
+connect as their own least-privilege Postgres role (cutover done after PR #45
+merged and CI redeployed). The S3 state backend and bootstrap stack landed in a
+follow-up PR, so `main` briefly lagged the account.
 
 ---
 
@@ -44,12 +44,6 @@ Each is recorded in §4.9 with its cause and fix. The CI test job had also been
 masking failures since the start of the engagement (§4.10).
 
 **What remains open:**
-- The database-role cutover. The infrastructure exists (secrets, `db-admin`
-  task, scoped IAM) but the roles are uncreated and both services still use
-  the master user. It must follow the merge of PR #45, so the running image
-  contains the `ensure_audit_table` fix.
-- PR #45 is applied from its branch but unmerged, so `main` is behind the
-  account until it merges.
 - The ALB serves HTTP only. An ACM certificate needs a domain with DNS
   validation, and none exists.
 - ECR tags are mutable until the deploy job registers task definitions by
@@ -216,15 +210,19 @@ this is what moves FSBP and CIS from `INCOMPLETE` to scored.
 **Verified:** `describe-configuration-recorder-status` reports the recorder
 recording with a last status of `SUCCESS`.
 
-### 4.12 Per-service database roles (PR #45, plumbing applied, cutover pending)
+### 4.12 Per-service database roles (PR #45, in force)
 
-Both services currently connect as the RDS master user. The change adds
+Both services connect as their own role, not the RDS master user. The change adds
 `payments_app` (SELECT/INSERT/UPDATE on users and accounts, SELECT/INSERT on
 transactions, webhooks and the audit log) and `kyc_app` (SELECT on
 `kyc_records` only). A dedicated `db-admin` task is the **only** one allowed to
 read the master credential; it generates each role password inside the VPC and
 writes it straight to Secrets Manager, so the password appears in no state file,
-command line or log. Rollout is two-phase behind `service_db_roles`.
+command line or log. Rollout was two-phase behind `service_db_roles` (now defaulting to `true`).
+**Found during cutover:** the first `db_admin.sh roles` run reported failure
+although both roles and secrets were written: GuardDuty runtime monitoring
+injects an agent sidecar, and the db-admin execution role could not pull it
+(403 on the AWS-owned repo). The role now has that pull permission.
 **Found by testing:** a least-privilege role cannot run the application's
 startup `CREATE TABLE IF NOT EXISTS audit_log` even when the table exists
 (`permission denied for schema public`); the startup check now looks the table
@@ -284,11 +282,11 @@ test is deselected only in the restricted-role run because it creates a role.
 
 ## 6. Residual risk and recommendations
 
-1. **Database-role cutover is pending.** Both services still connect as the
-   RDS master user. Order: merge PR #45 so CI redeploys with the
-   `ensure_audit_table` fix, run `scripts/db_admin.sh roles`, set
-   `service_db_roles = true`, apply, redeploy. Until then the least-privilege
-   model is built and tested but not in force.
+1. **Database-role cutover is done**; the master credential is now used only
+   by the `db-admin` task. Smoke test: both services stable on task definition
+   revision 2, an unauthenticated login returns 401 through the ALB, and logs
+   show no permission errors. A full authenticated flow (login, transfer) was
+   not re-run after cutover.
 2. **No HTTPS.** The ALB listens on HTTP. Set `certificate_arn` once a domain
    exists; the listener then redirects 80 to 443.
 3. **State now lives in S3** (own KMS key, versioning, S3 native locking), and

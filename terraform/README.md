@@ -30,9 +30,9 @@ validated (`terraform validate`) and scanned (`trivy config`) offline.
    `sentinelpay-dev/jwt-public-key-b64`.
 5. Apply the schema (tables only, never the demo data) with
    `scripts/db_admin.sh schema`, then create the first admin deliberately.
-6. Per-service database roles (two-phase): apply with
-   `service_db_roles = false` (default), run `scripts/db_admin.sh roles`, set
-   `service_db_roles = true`, apply, redeploy. The services image must already
+6. Per-service database roles (two-phase): on a fresh account apply with
+   `-var service_db_roles=false`, run `scripts/db_admin.sh roles`, set
+   `service_db_roles = true` (the default), apply, redeploy. The services image must already
    contain the `ensure_audit_table` fix.
 
 ## Known gaps
