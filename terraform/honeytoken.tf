@@ -21,14 +21,14 @@ data "aws_iam_policy_document" "honeytoken_deny" {
   }
 }
 
-resource "aws_iam_user_policy" "honeytoken" {
-  name   = "deny-all"
-  user   = aws_iam_user.honeytoken.name
-  policy = data.aws_iam_policy_document.honeytoken_deny.json
-}
-
 resource "aws_iam_access_key" "honeytoken" {
   user = aws_iam_user.honeytoken.name
+
+  # The response Lambda sets this to Inactive when the key is used; Terraform
+  # must not flip it back.
+  lifecycle {
+    ignore_changes = [status]
+  }
 }
 
 resource "aws_secretsmanager_secret" "honeytoken" {
@@ -63,4 +63,21 @@ resource "aws_cloudwatch_event_target" "honeytoken_sns" {
 resource "aws_cloudwatch_event_target" "honeytoken_response" {
   rule = aws_cloudwatch_event_rule.honeytoken_used.name
   arn  = aws_lambda_function.response.arn
+}
+
+# IAM.2: policies reach users through groups, so the deny-all moves to a group.
+resource "aws_iam_group" "honeytoken" {
+  name = "honeytoken-decoys"
+  path = "/service/"
+}
+
+resource "aws_iam_group_policy" "honeytoken" {
+  name   = "deny-all"
+  group  = aws_iam_group.honeytoken.name
+  policy = data.aws_iam_policy_document.honeytoken_deny.json
+}
+
+resource "aws_iam_user_group_membership" "honeytoken" {
+  user   = aws_iam_user.honeytoken.name
+  groups = [aws_iam_group.honeytoken.name]
 }

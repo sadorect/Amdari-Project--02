@@ -2,7 +2,7 @@
 from flask import Blueprint, request, jsonify
 
 from app.db import get_connection
-from app.auth import hash_password, verify_password, needs_rehash, issue_token
+from app.auth import hash_password, verify_password, needs_rehash, issue_token, require_auth
 from app.rate_limit import too_many_requests, is_blocked, record_failure, reset, rate_limited_response
 from app.audit import log_event
 
@@ -12,6 +12,8 @@ REGISTER_LIMIT = 50
 REGISTER_WINDOW_SECONDS = 60
 LOGIN_LIMIT = 5
 LOGIN_WINDOW_SECONDS = 60
+PASSWORD_MIN_LENGTH = 12
+PASSWORD_CHANGE_LIMIT = 5
 OTP_LIMIT = 5
 OTP_WINDOW_SECONDS = 60
 
@@ -101,6 +103,48 @@ def login():
 
         token = issue_token(user["id"], user["role"])
         return jsonify({"token": token, "user_id": user["id"], "role": user["role"]})
+    finally:
+        cur.close()
+        conn.close()
+
+
+@auth_bp.route("/password", methods=["POST"])
+@require_auth
+def change_password():
+    """Change the caller's own password.
+
+    The current password must be supplied, so a stolen token alone cannot
+    take over the account. Wrong current passwords count against the same
+    failure limit as login, keyed by user.
+    """
+    data = request.get_json() or {}
+    current = data.get("current_password")
+    new = data.get("new_password")
+    if not current or not new:
+        return jsonify({"error": "current_password and new_password required"}), 400
+    if len(new) < PASSWORD_MIN_LENGTH:
+        return jsonify({"error": f"new_password must be at least {PASSWORD_MIN_LENGTH} characters"}), 400
+
+    key = f"ratelimit:password:{request.current_user_id}"
+    if is_blocked(key, PASSWORD_CHANGE_LIMIT):
+        return rate_limited_response()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT password_hash FROM users WHERE id = %s", (request.current_user_id,))
+        user = cur.fetchone()
+        if not user or not verify_password(current, user["password_hash"]):
+            record_failure(key, LOGIN_WINDOW_SECONDS)
+            return jsonify({"error": "invalid credentials"}), 401
+        cur.execute(
+            "UPDATE users SET password_hash = %s WHERE id = %s",
+            (hash_password(new), request.current_user_id),
+        )
+        conn.commit()
+        reset(key)
+        log_event(request.current_user_id, "user.password_change", "user", request.current_user_id, {})
+        return jsonify({"status": "password updated"})
     finally:
         cur.close()
         conn.close()

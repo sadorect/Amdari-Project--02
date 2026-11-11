@@ -4,15 +4,14 @@
 **Scope:** Design and build of the AWS deployment in Terraform, remediation of
 the cloud findings `V-CLD-01` to `V-CLD-08`, and the infrastructure half of
 `V-PIP-03` (OIDC deploy roles)
-**Status:** 162 resources are deployed in `eu-west-2` and match the Terraform
-(`terraform plan` reports no changes); state is in an encrypted, versioned S3
-bucket. Both services run healthy behind the load balancer, built and shipped
-by a green pipeline. A second tranche of hardening (PR #45) is applied: AWS
-Config, the honeytoken, the response Lambda and the database-role plumbing are
-live, and the **per-service database roles are now in force**: both services
-connect as their own least-privilege Postgres role (cutover done after PR #45
-merged and CI redeployed). The S3 state backend and bootstrap stack landed in a
-follow-up PR, so `main` briefly lagged the account.
+**Status:** **Week 2 complete.** The AWS estate is deployed in `eu-west-2` and
+matches the Terraform (`terraform plan` reports no changes), with state in an
+encrypted, versioned S3 bucket. Both services run healthy behind the load
+balancer, built and shipped by a green pipeline, and connect to the database as
+their own least-privilege Postgres roles. Detection and response are proven in
+AWS, not only unit-tested: a honeytoken drill was quarantined within seven
+seconds (§4.13), and the alert topic has a confirmed email subscriber. Items
+that cannot be closed in code are listed with their reasons in §6.
 
 ---
 
@@ -21,7 +20,7 @@ follow-up PR, so `main` briefly lagged the account.
 Week 1 fixed the application. Week 2 gave it somewhere safe to run. The repo
 shipped no infrastructure code, so the whole AWS estate was designed from the
 target state in `docs/ARCHITECTURE_NOTES.md` and written as 12 Terraform files
-(about 1,600 lines, a further four files are in PR #45): a three-tier VPC across two AZs, encrypted private data
+(about 1,600 lines at first; six more files followed in PRs #45, #46 and the close-out): a three-tier VPC across two AZs, encrypted private data
 stores, three customer-managed KMS keys, Fargate services behind an ALB,
 CloudTrail with log-file validation into an Object Lock bucket, GuardDuty,
 Security Hub, VPC flow logs, and GitHub-to-AWS OIDC with no stored keys.
@@ -43,11 +42,21 @@ GitHub's immutable OIDC subject claim, which my trust policy could not match.
 Each is recorded in §4.9 with its cause and fix. The CI test job had also been
 masking failures since the start of the engagement (§4.10).
 
-**What remains open:**
+**Close-out (§4.15).** The last stretch found and fixed defects that unit tests
+could not: the encrypted alert topic could not receive EventBridge or
+CloudWatch publishes (alerts would have been silently dropped), nobody was
+subscribed to it, and the Security Hub standards had been subscribed before the
+Config recorder existed, so Security Hub never created its rules. All three are
+fixed and verified.
+
+**What remains open, and why** (full list in §6):
 - The ALB serves HTTP only. An ACM certificate needs a domain with DNS
   validation, and none exists.
 - ECR tags are mutable until the deploy job registers task definitions by
   commit SHA (Week 3 pipeline work).
+- Root-account MFA and the account security contact are manual console steps.
+- A small set of cost-driven Security Hub controls are accepted risks (Macie,
+  RDS Multi-AZ and enhanced monitoring, ElastiCache failover).
 
 ---
 
@@ -86,10 +95,10 @@ masking failures since the start of the engagement (§4.10).
 | V-CLD-04 | Hardcoded AWS keys | No static keys anywhere; Secrets Manager (KMS), task roles, OIDC | Live, verified |
 | V-CLD-05 | Overbroad IAM role | One task role per service; only `kyc-api` can reach S3, only the KYC bucket; scoped deploy and build roles | Live, verified |
 | V-CLD-06 | CloudTrail integrity | Multi-region trail, log-file validation, KMS, S3 object events on the KYC bucket, Object Lock (Governance, 365 days) | Live, verified |
-| V-CLD-07 | GuardDuty disabled | Detector on with S3, malware, RDS login, Lambda and runtime features; Security Hub FSBP and CIS; AWS Config now recording | Live; Security Hub still `INCOMPLETE` minutes after Config started, re-check pending |
+| V-CLD-07 | GuardDuty disabled | Detector on with S3, malware, RDS login, Lambda and runtime features; Security Hub FSBP and CIS; AWS Config recording, 12 CIS log-monitoring alarms | Live; standards `READY` after re-subscribing (§4.6) |
 | V-CLD-08 | No flow logs | VPC flow logs to S3 and to an encrypted CloudWatch log group | Live, verified |
 | V-PIP-03 | Pipeline has admin | GitHub OIDC build role (ECR push, any branch) and deploy role (ECS redeploy, `main` only) | Live; pipeline green end to end |
-| (target state) | Config, per-service DB roles, honeytoken, automated response | See §4.11 to §4.14 | Config, honeytoken and Lambda **live**; DB roles plumbed, **cutover pending** (PR #45 unmerged) |
+| (target state) | Config, per-service DB roles, honeytoken, automated response | See §4.11 to §4.14 | Config, honeytoken, Lambda and per-service DB roles all **live**; honeytoken drilled in AWS |
 
 ---
 
@@ -152,12 +161,15 @@ GuardDuty is enabled with S3 data events, EBS malware protection, RDS login
 events, Lambda network logs and runtime monitoring. Security Hub is on with the
 AWS Foundational Security Best Practices and CIS 1.4.0 standards. High-severity
 GuardDuty findings (severity ≥ 7) are routed to an encrypted SNS topic.
-**Open:** both standards showed `INCOMPLETE` while AWS Config was not
-recording. Config is now recording (§4.11), but a query made minutes after the
-recorder started still returned `INCOMPLETE` with reason
-`NO_AVAILABLE_CONFIGURATION_RECORDER`. Security Hub refreshes this on its own
-schedule, so this is unconfirmed either way; re-check it, and if it persists
-treat it as a defect in the Config setup.
+**Defect found and fixed.** Both standards sat at `INCOMPLETE` (reason
+`NO_AVAILABLE_CONFIGURATION_RECORDER`) for hours after Config was recording.
+Security Hub had created no Config rules at all: the standards were subscribed
+before the recorder existed and it never retried. Replacing the two
+subscriptions after the recorder was running fixed it: both went `READY` and
+Security Hub created 354 Config rules. Terraform already orders the
+subscriptions after the recorder for fresh builds. The CIS log-monitoring
+controls (CloudWatch.1, .4 to .14) were genuinely failing and are fixed by
+twelve metric filters and alarms (§4.15).
 
 ### 4.7 V-CLD-08 — VPC flow logs
 
@@ -232,17 +244,26 @@ restricted roles; role creation is idempotent. **Applied:** the two secret
 containers, the `db-admin` task definition and its scoped roles exist in AWS.
 **Not done:** the roles themselves and the switch to them (§6).
 
-### 4.13 Honeytoken (PR #45, applied)
+### 4.13 Honeytoken (PR #45, drilled in AWS)
 
-A decoy IAM user (`svc-backup-sync`) with an explicit deny-all policy and an
-access key stored in an unremarkable secret that nothing reads. The user and
-the secret exist in AWS; the alarm path has not been fired end to end. Any API call
-made with it fires an EventBridge rule to the security topic and the response
-function. **Limits:** its secret is in Terraform state, and EventBridge only
-sees this region plus global events, so a call to another region's endpoint
-would not fire the rule.
+A decoy IAM user (`svc-backup-sync`) with an explicit deny-all policy (via a
+group, so policies reach users only through groups) and an access key stored in
+an unremarkable secret that nothing reads.
 
-### 4.14 Automated response (PR #45, applied)
+**Drill.** I read the decoy secret as an attacker would and used the key
+(`sts get-caller-identity`, then `s3 ls`, which AWS denied). The EventBridge
+rule fired, the response Lambda logged `HONEYTOKEN USED`, deactivated the key
+and reported `quarantined` about seven seconds after the call; the key is
+`Inactive`. **Defect found by the drill:** the security SNS topic had no
+subscriber (`alert_email` was empty), and its KMS key policy did not let
+EventBridge or CloudWatch publish to it, so notifications would have been
+dropped. Both are fixed (§4.15). After the drill Terraform wanted to reactivate
+the key; `status` is now ignored so a later apply cannot undo a quarantine.
+**Limits:** its secret is in Terraform state, and EventBridge only sees this
+region plus global events, so a call to another region's endpoint would not
+fire the rule.
+
+### 4.14 Automated response (PR #45, triggered in AWS)
 
 A Lambda, triggered by GuardDuty findings ≥ 7 and honeytoken use, that
 contains and never deletes: it deactivates a compromised IAM access key and
@@ -250,9 +271,29 @@ attaches a deny-all policy, and stops a flagged ECS task so the service starts
 a clean one. It will not touch protected users (default `cloudproject`, the
 human admin), enforced twice: in code and by an explicit IAM deny. A
 `response_dry_run` variable logs without acting. **Verified:** six unit tests,
-including that the protected admin is never touched, and the deployed function
-reports `Active` with `PROTECTED_USERS=cloudproject`. It has not yet been
-triggered by a real or synthetic event in AWS.
+including that the protected admin is never touched, and the honeytoken drill
+above exercised the deployed function end to end. The GuardDuty trigger path
+has not been exercised by a real finding.
+
+### 4.15 Close-out hardening
+
+| Area | Change | Verified |
+|------|--------|----------|
+| CIS log monitoring | 12 metric filters and alarms on the CloudTrail log group (root usage, IAM policy, trail, console failures, CMK deletion, S3 policy, Config, security groups, NACLs, gateways, route tables, VPC), all to the security topic | Plan applied; CloudWatch controls no longer in the failed list |
+| Alert delivery | KMS logs key and SNS topic policy now allow EventBridge and CloudWatch; email subscription added (`alert_email` in a git-ignored `terraform.tfvars`) | Subscription confirmed; test message published |
+| Config.1 | Recorder uses the service-linked role; custom role removed; key policy allows `config.amazonaws.com` | Recorder `recording`, `SUCCESS` after the swap |
+| Security Hub | Standards re-subscribed after the recorder | Both `READY`, 354 Config rules |
+| Account settings | Password policy (14 chars, 24 reuse, 90 days), EBS default encryption, S3 account public-access block, SSM public-document block, EBS snapshot public-access block | Read back from AWS |
+| Support access | `sentinelpay-dev-aws-support` role with `AWSSupportAccess` | In plan, applied |
+| Inspector | ECR, Lambda, Lambda code, EC2 scanning enabled | `ENABLED` on all three states checked |
+| CloudTrail bucket | Lifecycle: Glacier at 90 days, expire at 730 (Object Lock is 365) | Applied |
+| Not-applicable controls | GuardDuty.7, GuardDuty.13, SSM.6, EC2.57, .58, .60 disabled with the reason recorded (no EKS, EC2 or Systems Manager) | Applied |
+| Default VPC | Deleted (empty: no instances or interfaces); it failed EC2.2, EC2.6, EC2.55 | `describe-vpcs` shows only the project VPC |
+| Change password | New `POST /v1/auth/password`: needs the current password, 12-character minimum, failures rate limited, audit event | 4 new tests; payments-api suite 51 pass |
+
+Security Hub re-evaluates most controls on its own schedule (up to about 12
+hours), so a finding last updated before a fix can still show as failed. Where
+this matters I verified the setting directly against AWS instead (rows above).
 
 ---
 
@@ -263,7 +304,7 @@ triggered by a real or synthetic event in AWS.
 | `terraform validate` | Pass |
 | `trivy config` on source and on the rendered plan JSON | 0 HIGH or CRITICAL after the documented ignores |
 | `terraform plan` after the final apply | No changes |
-| payments-api tests (as master / as `payments_app`) | 47 pass / 46 pass (the audit probe needs superuser) |
+| payments-api tests (as master / as `payments_app`) | 51 pass / 50 pass (the audit probe needs superuser); the restricted-role run predates the 4 password tests |
 | kyc-api tests (as master / as `kyc_app`) | 19 / 19 |
 | Response Lambda unit tests | 6 pass |
 | CI on `main` after PR #43 | All jobs green, including deploy |
@@ -272,7 +313,10 @@ triggered by a real or synthetic event in AWS.
 | Live: through the ALB | Login 200 (admin) and 401 (wrong password); unauthenticated calls 401; `/v1/admin` 404 (unrouted) |
 | Live: ECS | Both services 1/1, rollout `COMPLETED`; both target groups healthy |
 | Live: AWS Config | Recorder recording, last status `SUCCESS` |
-| Live: response Lambda and honeytoken | Function `Active`, protected user set; decoy user exists (alarm path not yet fired) |
+| Live: honeytoken drill | Decoy key used; response Lambda quarantined it in about 7 s; key `Inactive` |
+| Live: authenticated flow after DB cutover | Register 201, login 200 with a token, account list and transaction search 200, all under `payments_app`; no permission errors in either service log |
+| Live: alert path | SNS subscription confirmed; test message published |
+| Live: Security Hub | Both standards `READY`; 354 Config rules; CloudWatch controls cleared |
 | Terraform state | Remote object is KMS-encrypted; 133 resources readable through the backend at migration (162 after the apply); the plan against it matched the approved plan exactly |
 
 No test was weakened, skipped or masked to obtain a pass; the one deselected
@@ -280,36 +324,52 @@ test is deselected only in the restricted-role run because it creates a role.
 
 ---
 
-## 6. Residual risk and recommendations
+## 6. Residual risk and accepted items
 
-1. **Database-role cutover is done**; the master credential is now used only
-   by the `db-admin` task. Smoke test: both services stable on task definition
-   revision 2, an unauthenticated login returns 401 through the ALB, and logs
-   show no permission errors. A full authenticated flow (login, transfer) was
-   not re-run after cutover.
-2. **No HTTPS.** The ALB listens on HTTP. Set `certificate_arn` once a domain
-   exists; the listener then redirects 80 to 443.
-3. **State now lives in S3** (own KMS key, versioning, S3 native locking), and
-   the local copies were shredded after the migration was verified. The state
-   still holds secrets (the Redis token, the honeytoken key), so access to the
-   bucket and its key is access to those. Bootstrap keeps a small local state
-   file for the bucket itself, which holds no secrets.
-4. **ECR tags are mutable** because CI pushes `:latest`. The deploy job should
-   register a task definition per commit SHA, then the repositories can be set
-   immutable. Week 3 pipeline scope.
-5. **The initial admin password** is a generated secret
-   (`sentinelpay-dev/initial-admin`), and the app has no change-password or
-   reset route (the only password-adjacent route is `/otp`). Rotate it by
-   another one-off task, and add the route.
-6. **Cost.** The stack bills continuously (NAT gateway, five interface
+**Needs you, not code**
+1. **Root account MFA** (Security Hub IAM.6, IAM.9, both critical) and the
+   **account security contact** (Account.1): console steps that need the root
+   user and a phone number. IAM.5 flags the human admin user `cloudproject`
+   (no MFA on the console user) for the same reason.
+2. **No HTTPS** (ELB.1, .18, .21, .22). The ALB listens on HTTP. Set
+   `certificate_arn` once a domain exists; the listener then redirects 80 to
+   443.
+
+**Deferred to Week 3**
+3. **ECR tags are mutable** (ECR.2) because CI pushes `:latest`. The deploy job
+   should register a task definition per commit SHA, then the repositories can
+   be set immutable.
+
+**Accepted for a dev account, with the reason**
+4. Cost-driven: Macie (Macie.1), RDS Multi-AZ (RDS.5), RDS enhanced monitoring
+   (RDS.6), ElastiCache automatic failover (ElastiCache.3), an EC2 VPC
+   endpoint (EC2.10). For a production KYC bucket, Macie is the one to revisit.
+5. RDS on the default port (RDS.23), S3 server access logging on the logs and
+   state buckets (S3.9; object events are in CloudTrail), MFA delete on the
+   trail bucket (S3.20; Object Lock governs deletion), Secrets Manager rotation
+   (SecretsManager.1; database role passwords rotate by re-running
+   `db_admin.sh roles`), VPC block public access (EC2.172; it would block the
+   public ALB), and the EC2/SSM-related controls with no matching resources.
+6. **State holds secrets** (the Redis token, the honeytoken key). It lives in
+   S3 with its own KMS key, versioning and native locking, so access to the
+   bucket and key is access to those. Bootstrap keeps a small local state file
+   for the bucket itself, which holds no secrets.
+7. **Throwaway test user.** The authenticated check registered
+   `cutover-check-*@example.invalid` (id 2). The app role has no DELETE by
+   design, so it stays unless removed with the master role.
+8. **Admin password.** The initial admin password is a generated secret
+   (`sentinelpay-dev/initial-admin`). The change-password route is built and
+   tested (§4.15); the rotation itself is done after that route is deployed
+   (status in the PR).
+9. **Cost.** The stack bills continuously (NAT gateway, five interface
    endpoints across two AZs, RDS, ElastiCache, ALB, Fargate, GuardDuty,
-   Security Hub). My estimate of $120 to $200 a month in London is not checked
-   against AWS pricing. Teardown is `terraform apply -var
+   Security Hub, Config, Inspector). My estimate of $120 to $200 a month in
+   London is not checked against AWS pricing. Teardown is `terraform apply -var
    deletion_protection=false` then `terraform destroy -var
    deletion_protection=false`; the Object Lock bucket needs the extra step in
    `terraform/README.md`.
-7. **Week 3 carries forward:** multi-stage pipeline gates, IaC scanning in CI,
-   and the purple-team simulation against this deployment.
+10. **Week 3 carries forward:** multi-stage pipeline gates, IaC scanning in CI,
+    and the purple-team simulation against this deployment.
 
 ---
 
@@ -322,4 +382,6 @@ test is deselected only in the restricted-role run because it creates a role.
 | #42 | App builds DB and Redis URLs from ECS-injected parts | Merged |
 | #43 | OIDC subject claim, build role, ECR login for signature verification | Merged |
 | #44 | Split `init.sql` into `schema.sql` and `seed_data.sql` | Merged |
-| #45 | AWS Config, per-service DB roles, honeytoken, response Lambda, S3 state backend, report and deck | Open; applied from the branch |
+| #45 | AWS Config, per-service DB roles, honeytoken, response Lambda | Merged |
+| #46 | S3 state backend and bootstrap stack, DB-role cutover, db-admin GuardDuty pull | Merged |
+| (close-out) | CIS alarms, alert delivery, Config service-linked role, account settings, change-password route, report and deck | See the open PR |

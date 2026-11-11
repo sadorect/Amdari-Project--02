@@ -119,6 +119,26 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
   }
 }
 
+# Trail logs stay under Object Lock for 365 days; archive after 90 and expire
+# once the lock has long passed.
+resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
+  bucket = aws_s3_bucket.cloudtrail.id
+
+  rule {
+    id     = "archive-and-expire-trail"
+    status = "Enabled"
+    filter {}
+    transition {
+      days          = 90
+      storage_class = "GLACIER"
+    }
+    expiration { days = 730 }
+    noncurrent_version_expiration { noncurrent_days = 400 }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.this]
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "kyc" {
   bucket = aws_s3_bucket.kyc.id
 

@@ -34,6 +34,11 @@ data "aws_iam_policy_document" "kms" {
           "cloudtrail.amazonaws.com",
           "delivery.logs.amazonaws.com",
           "logs.${var.region}.amazonaws.com",
+          # the security SNS topic is encrypted with this key; EventBridge
+          # rules and CloudWatch alarms publish to it
+          "config.amazonaws.com",
+          "events.amazonaws.com",
+          "cloudwatch.amazonaws.com",
         ]
       }
     }
