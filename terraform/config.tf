@@ -1,58 +1,22 @@
 # AWS Config records resource configuration. Security Hub's FSBP and CIS
 # controls evaluate against it and report INCOMPLETE until it runs.
+# The standards must be subscribed after the recorder is running.
 
-data "aws_iam_policy_document" "config_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["config.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceAccount"
-      values   = [local.account_id]
-    }
-  }
-}
-
-resource "aws_iam_role" "config" {
-  name               = "${local.name}-config-recorder"
-  assume_role_policy = data.aws_iam_policy_document.config_assume.json
-}
-
-resource "aws_iam_role_policy_attachment" "config" {
-  role       = aws_iam_role.config.name
-  policy_arn = "arn:${local.partition}:iam::aws:policy/service-role/AWS_ConfigRole"
-}
-
-data "aws_iam_policy_document" "config_delivery" {
-  statement {
-    actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.logs.arn}/config/AWSLogs/${local.account_id}/*"]
-  }
-  statement {
-    actions   = ["s3:GetBucketAcl"]
-    resources = [aws_s3_bucket.logs.arn]
-  }
-}
-
-resource "aws_iam_role_policy" "config_delivery" {
-  name   = "deliver-to-logs-bucket"
-  role   = aws_iam_role.config.id
-  policy = data.aws_iam_policy_document.config_delivery.json
+# Security Hub control Config.1 requires the service-linked role. It delivers
+# to the logs bucket through the Config statements in that bucket's policy.
+resource "aws_iam_service_linked_role" "config" {
+  aws_service_name = "config.amazonaws.com"
 }
 
 resource "aws_config_configuration_recorder" "this" {
   name     = local.name
-  role_arn = aws_iam_role.config.arn
+  role_arn = aws_iam_service_linked_role.config.arn
 
   recording_group {
     all_supported                 = true
     include_global_resource_types = true
   }
 
-  depends_on = [aws_iam_role_policy_attachment.config]
 }
 
 resource "aws_config_delivery_channel" "this" {

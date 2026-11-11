@@ -44,6 +44,13 @@ validated (`terraform validate`) and scanned (`trivy config`) offline.
 - **Honeytoken.** Its access key is in Terraform state (now encrypted in S3).
   EventBridge only sees this region plus global events, so a call to another
   region's endpoint would not fire the rule.
+- **Alerts.** Set `alert_email` (put it in a git-ignored `terraform.tfvars`) and
+  confirm the SNS email; without it alarms and findings reach nobody.
+- **Security Hub.** Subscribe the standards after the Config recorder is
+  running (Terraform orders this); a standard subscribed first stays
+  `INCOMPLETE` until it is replaced.
+- **Manual.** Root-account MFA and the account security contact cannot be set
+  in Terraform.
 - **Cost.** The stack bills continuously; destroy when finished (below).
 
 ## Tearing down
