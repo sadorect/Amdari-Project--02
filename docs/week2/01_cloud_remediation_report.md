@@ -295,6 +295,18 @@ Security Hub re-evaluates most controls on its own schedule (up to about 12
 hours), so a finding last updated before a fix can still show as failed. Where
 this matters I verified the setting directly against AWS instead (rows above).
 
+**State at the end of the engagement.** Both standards are `READY`. Several
+findings for controls fixed in §4.15 (password policy, EBS default encryption,
+S3 account public-access block, Inspector, support role, Config.1) still showed
+`FAILED` with last-updated times from before the fixes. Config rules re-run
+about every 24 hours, and a manual re-run request was throttled
+(`LimitExceededException`) because the bulk request I had just made was still
+queued. The settings themselves were read back from AWS and are correct, so
+these should clear on the next evaluation; that clearing is the one thing I did
+not see happen. To re-check: `aws securityhub get-findings` filtered to
+`ComplianceStatus=FAILED`, or `aws configservice describe-compliance-by-config-rule
+--compliance-types NON_COMPLIANT`.
+
 ---
 
 ## 5. Testing and verification summary
@@ -357,10 +369,11 @@ test is deselected only in the restricted-role run because it creates a role.
 7. **Throwaway test user.** The authenticated check registered
    `cutover-check-*@example.invalid` (id 2). The app role has no DELETE by
    design, so it stays unless removed with the master role.
-8. **Admin password.** The initial admin password is a generated secret
-   (`sentinelpay-dev/initial-admin`). The change-password route is built and
-   tested (§4.15); the rotation itself is done after that route is deployed
-   (status in the PR).
+8. **Admin password: rotated.** After PR #47 deployed the change-password
+   route, I logged in with the generated initial password, changed it through
+   the route, and stored the new value in `sentinelpay-dev/initial-admin`. The
+   old password now returns 401 and the new one 200. Any further rotation
+   uses the same route.
 9. **Cost.** The stack bills continuously (NAT gateway, five interface
    endpoints across two AZs, RDS, ElastiCache, ALB, Fargate, GuardDuty,
    Security Hub, Config, Inspector). My estimate of $120 to $200 a month in
