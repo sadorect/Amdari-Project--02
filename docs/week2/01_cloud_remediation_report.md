@@ -4,7 +4,7 @@
 **Scope:** Design and build of the AWS deployment in Terraform, remediation of
 the cloud findings `V-CLD-01` to `V-CLD-08`, and the infrastructure half of
 `V-PIP-03` (OIDC deploy roles)
-**Status:** **Week 2 complete.** The AWS estate is deployed in `eu-west-2` and
+**Status:** **Week 2 complete.** The AWS estate (234 resources) is deployed in `eu-west-2` and
 matches the Terraform (`terraform plan` reports no changes), with state in an
 encrypted, versioned S3 bucket. Both services run healthy behind the load
 balancer, built and shipped by a green pipeline, and connect to the database as
@@ -304,7 +304,7 @@ this matters I verified the setting directly against AWS instead (rows above).
 | `terraform validate` | Pass |
 | `trivy config` on source and on the rendered plan JSON | 0 HIGH or CRITICAL after the documented ignores |
 | `terraform plan` after the final apply | No changes |
-| payments-api tests (as master / as `payments_app`) | 51 pass / 50 pass (the audit probe needs superuser); the restricted-role run predates the 4 password tests |
+| payments-api tests (as master / as `payments_app`) | 51 pass / 46 pass (the audit probe needs superuser; the restricted-role run predates the 4 password tests) |
 | kyc-api tests (as master / as `kyc_app`) | 19 / 19 |
 | Response Lambda unit tests | 6 pass |
 | CI on `main` after PR #43 | All jobs green, including deploy |
