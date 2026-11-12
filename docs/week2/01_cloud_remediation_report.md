@@ -295,17 +295,20 @@ Security Hub re-evaluates most controls on its own schedule (up to about 12
 hours), so a finding last updated before a fix can still show as failed. Where
 this matters I verified the setting directly against AWS instead (rows above).
 
-**State at the end of the engagement.** Both standards are `READY`. Several
-findings for controls fixed in §4.15 (password policy, EBS default encryption,
-S3 account public-access block, Inspector, support role, Config.1) still showed
-`FAILED` with last-updated times from before the fixes. Config rules re-run
-about every 24 hours, and a manual re-run request was throttled
-(`LimitExceededException`) because the bulk request I had just made was still
-queued. The settings themselves were read back from AWS and are correct, so
-these should clear on the next evaluation; that clearing is the one thing I did
-not see happen. To re-check: `aws securityhub get-findings` filtered to
-`ComplianceStatus=FAILED`, or `aws configservice describe-compliance-by-config-rule
---compliance-types NON_COMPLIANT`.
+**State at the end of the engagement.** Both standards are `READY`. After a
+manual re-run, EBS default encryption (EC2.7) and the SSM public-sharing block
+(SSM.7) moved to `PASSED`. The remaining controls fixed in §4.15 (password
+policy, S3 account public-access block, Inspector, support role, Config.1) still
+showed `FAILED`, with last-updated times from before the fixes. Their Config
+rules re-run about every 24 hours and further manual re-runs were throttled
+(`LimitExceededException`; 23 of 348 accepted). The settings themselves were
+read back from AWS and are correct, so these should clear on the next periodic
+evaluation; that clearing is the one thing I did not see happen. IAM.2 will
+remain for the human admin user `cloudproject`, which has policies attached
+directly: a manual change, like its missing console MFA (IAM.5). To re-check:
+`aws securityhub get-findings` filtered to `ComplianceStatus=FAILED`, or
+`aws configservice describe-compliance-by-config-rule --compliance-types
+NON_COMPLIANT`.
 
 ---
 
