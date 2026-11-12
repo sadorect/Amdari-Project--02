@@ -59,7 +59,7 @@ variable "certificate_arn" {
 }
 
 variable "image_tag" {
-  description = "Image tag deployed to ECS. CI pushes :latest today; pin to a digest once the Week 3 pipeline lands."
+  description = "Image tag used for the Terraform-created bootstrap task definition and the one-off DB roles task. The CI deploy job registers its own revisions by commit SHA and digest; ECR tags are immutable."
   type        = string
   default     = "latest"
 }

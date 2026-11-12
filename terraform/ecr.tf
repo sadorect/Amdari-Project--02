@@ -2,9 +2,9 @@ resource "aws_ecr_repository" "this" {
   for_each = local.services
 
   name = "sentinelpay-${each.key}"
-  # MUTABLE only because ci.yml still pushes :latest. Flip to IMMUTABLE
-  # when the Week 3 pipeline tags by commit SHA / digest.
-  image_tag_mutability = "MUTABLE"
+  # CI tags every image by commit SHA and deploys by digest, so a tag can
+  # never be repointed after the fact (Security Hub ECR.2).
+  image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration { scan_on_push = true }
   encryption_configuration {
