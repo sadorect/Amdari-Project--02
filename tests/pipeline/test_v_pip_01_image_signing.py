@@ -56,6 +56,29 @@ def test_a_verification_step_fails_closed_before_deploy():
     assert VERIFY_SCRIPT.stat().st_mode & 0o111, "verify_image_signature.sh must be executable"
 
 
+def test_verify_script_pins_the_identity_to_this_repo_not_just_the_workflow_filename():
+    """Found by Week 3 purple-team testing: the --certificate-identity-regexp
+    pinned the workflow filename (ci.yml) but left the org/repo as a `.+`
+    wildcard, so a cosign-signed image from ANY GitHub repo whose workflow
+    also happened to be named ci.yml would verify. Checks the regexp
+    literal itself (not just that one is present), so this would have
+    caught the original bug."""
+    import re
+
+    text = VERIFY_SCRIPT.read_text()
+    m = re.search(r'--certificate-identity-regexp\s+"([^"]+)"', text)
+    assert m, "expected a --certificate-identity-regexp flag in verify_image_signature.sh"
+    pattern = m.group(1)
+
+    own_repo_identity = "https://github.com/sadorect/Amdari-Project--02/.github/workflows/ci.yml@refs/heads/main"
+    other_repo_identity = "https://github.com/some-other-org/totally-unrelated-repo/.github/workflows/ci.yml@refs/heads/main"
+
+    assert re.fullmatch(pattern, own_repo_identity), "the pattern must still accept this repo's own workflow"
+    assert not re.fullmatch(pattern, other_repo_identity), (
+        "the pattern must reject a differently-owned repo's workflow of the same filename"
+    )
+
+
 def test_verify_script_fails_closed_on_an_actually_unsigned_image():
     """Without a real cosign binary + registry in this sandbox, this
     exercises the one thing we CAN check here: the script's own
