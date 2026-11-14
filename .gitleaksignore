@@ -6,3 +6,14 @@
 # and these are case-study values, not live credentials.
 d43665a8b6c820c255041997034521db47cc3b61:scripts/legacy_deploy.sh:slack-webhook-url:18
 d43665a8b6c820c255041997034521db47cc3b61:scripts/legacy_deploy.sh:stripe-access-token:21
+
+# Week 3 purple-team report: the access key ID of the honeytoken itself
+# (terraform/honeytoken.tf, user svc-backup-sync). An IAM access key id
+# alone grants nothing without its secret half; the key is deny-all by
+# IAM policy and was already Inactive (auto-quarantined) before and after
+# this commit. It's the subject of the finding, not a leaked credential —
+# left visible for the report's own audit trail rather than rewriting
+# history. Redacted in the file itself (2 later commits on this branch);
+# kept here, not removed, because a fingerprint ignore entry only ever
+# un-flags a commit, never deletes it from history.
+bcb240e4ffcbebad3e631c9793a819d5f978ec04:docs/week3/02_purple_team_exercise.md:aws-access-token:64
