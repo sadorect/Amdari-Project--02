@@ -27,15 +27,20 @@ IMAGE="${REPO_URL}@${DIGEST}"
 CURRENT_TD=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
     --query 'services[0].taskDefinition' --output text)
 
-NEW_TD=$(aws ecs describe-task-definition --task-definition "$CURRENT_TD" \
+TD_FILE=$(mktemp)
+trap 'rm -f "$TD_FILE"' EXIT
+
+aws ecs describe-task-definition --task-definition "$CURRENT_TD" \
     --query taskDefinition --output json |
     jq --arg image "$IMAGE" '
         .containerDefinitions[0].image = $image
         | {family, taskRoleArn, executionRoleArn, networkMode, containerDefinitions,
            volumes, placementConstraints, requiresCompatibilities, cpu, memory,
-           runtimePlatform}' |
-    aws ecs register-task-definition --cli-input-json file:///dev/stdin \
-        --query 'taskDefinition.taskDefinitionArn' --output text)
+           runtimePlatform}
+        | with_entries(select(.value != null))' > "$TD_FILE"
+
+NEW_TD=$(aws ecs register-task-definition --cli-input-json "file://${TD_FILE}" \
+    --query 'taskDefinition.taskDefinitionArn' --output text)
 
 echo "Registered ${NEW_TD} -> ${IMAGE}"
 
