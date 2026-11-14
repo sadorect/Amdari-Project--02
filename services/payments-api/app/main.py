@@ -66,6 +66,16 @@ def create_app():
         app.logger.error("Unhandled exception: %s", e, exc_info=True)
         return jsonify({"error": "internal server error"}), 500
 
+    @app.after_request
+    def add_security_headers(resp):
+        # API responses are data, never pages: lock down what a browser may do
+        # with them if one is ever pointed here.
+        resp.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+        resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("Cache-Control", "no-store")
+        return resp
+
     return app
 
 
