@@ -1,0 +1,152 @@
+# Week 3 / Phase 2: DevSecOps gates. Runs beside ci.yml (which keeps test,
+# build, cosign signing, Syft SBOM, signature verification and deploy) so a
+# scanner change can never touch the deploy path. Every job here is a
+# required status check on main (Phase 3). Nothing here uses AWS credentials.
+#
+# Gate policy: a job fails the build on HIGH/CRITICAL (or the tool's
+# equivalent). Accepted findings live in the tool's own ignore file with a
+# reason, never in a blanket continue-on-error.
+
+name: Security
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: a secret deleted in a later commit is still leaked
+      - name: Gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 \
+            detect --source /repo --redact --verbose --exit-code 1
+
+  sast:
+    name: sast (semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep:1.97.0 \
+            semgrep scan --error --metrics=off \
+            --config p/python --config p/flask --config p/owasp-top-ten \
+            --config p/secrets services/
+
+  dependencies:
+    name: dependencies (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [payments-api, kyc-api]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: pip-audit (known-vulnerable Python dependencies)
+        run: |
+          pip install pip-audit==2.7.3
+          pip-audit -r services/${{ matrix.service }}/requirements.txt
+      - name: Trivy filesystem scan (deps, secrets, misconfig)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: services/${{ matrix.service }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  iac:
+    name: iac (checkov, hadolint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Checkov (Terraform)
+        run: |
+          pip install checkov==3.2.334
+          checkov -d terraform --framework terraform --quiet --compact \
+            --skip-path terraform/lambda
+      - name: Hadolint (payments-api)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: services/payments-api/Dockerfile
+          failure-threshold: warning
+      - name: Hadolint (kyc-api)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: services/kyc-api/Dockerfile
+          failure-threshold: warning
+
+  image:
+    name: image (trivy, ${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [payments-api, kyc-api]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (local only, not pushed)
+        run: docker build -t scan/${{ matrix.service }}:${{ github.sha }} services/${{ matrix.service }}
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: scan/${{ matrix.service }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  dast:
+    name: dast (zap baseline)
+    # DAST needs the stack up, so it runs on PRs only; pushes already get
+    # every static gate above.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bring up the stack
+        run: |
+          ./scripts/generate_dev_jwt_keys.sh
+          {
+            echo "POSTGRES_PASSWORD=ci-dast-only"
+            echo "AWS_ACCESS_KEY_ID=dast-not-real"
+            echo "AWS_SECRET_ACCESS_KEY=dast-not-real"
+          } >> .env
+          docker compose up -d --build
+          for port in 8001 8002; do
+            for i in $(seq 1 30); do
+              curl -fs "http://localhost:${port}/health" && break
+              sleep 2
+            done
+            curl -fs "http://localhost:${port}/health"
+          done
+      - name: ZAP baseline (payments-api)
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: http://localhost:8001
+          rules_file_name: .zap/rules.tsv
+          artifact_name: zap-payments-api
+          allow_issue_writing: false
+      - name: ZAP baseline (kyc-api)
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: http://localhost:8002
+          rules_file_name: .zap/rules.tsv
+          artifact_name: zap-kyc-api
+          allow_issue_writing: false
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --tail=100

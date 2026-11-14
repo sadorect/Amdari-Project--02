@@ -67,4 +67,7 @@ def create_app():
 if __name__ == "__main__":
     app = create_app()
     debug_mode = os.environ.get("ENVIRONMENT", "development") == "development"
+    # Accepted: the container must listen on all interfaces; exposure is
+    # controlled by the ECS security group / compose port mapping.
+    # nosemgrep: python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host
     app.run(host="0.0.0.0", port=8001, debug=debug_mode)
