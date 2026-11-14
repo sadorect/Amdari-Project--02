@@ -60,7 +60,7 @@ jobs:
           pip-audit -r services/${{ matrix.service }}/requirements.txt
       - uses: aquasecurity/setup-trivy@v0.2.6
         with:
-          version: v0.65.0
+          version: v0.76.2
       - name: Trivy filesystem scan (deps, secrets, misconfig)
         run: trivy fs --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 services/${{ matrix.service }}
 
@@ -102,7 +102,7 @@ jobs:
         run: docker build -t scan/${{ matrix.service }}:${{ github.sha }} services/${{ matrix.service }}
       - uses: aquasecurity/setup-trivy@v0.2.6
         with:
-          version: v0.65.0
+          version: v0.76.2
       - name: Trivy image scan
         run: trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 scan/${{ matrix.service }}:${{ github.sha }}
 
