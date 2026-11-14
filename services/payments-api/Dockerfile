@@ -7,6 +7,14 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt requirements-dev.txt ./
+# Patch base-image findings Trivy reports as fixed upstream: zlib1g (OS) and the
+# wheel/setuptools build tooling (setuptools vendors jaraco.context).
+# hadolint ignore=DL3008,DL3013
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --upgrade pip setuptools wheel
+
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
 COPY . .
