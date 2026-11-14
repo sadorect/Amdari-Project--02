@@ -1,0 +1,42 @@
+# Checkov baseline. Every skipped check has a reason; anything not listed
+# here fails the build. Revisit when the environment moves beyond dev.
+framework:
+  - terraform
+skip-path:
+  - terraform/lambda
+skip-check:
+  # --- Cost / scope: single-region, single-AZ dev environment -------------
+  - CKV_AWS_144   # S3 cross-region replication
+  - CKV2_AWS_62   # S3 event notifications
+  - CKV_AWS_300   # S3 abort-incomplete-multipart lifecycle
+  - CKV_AWS_18    # S3 access logging on the Terraform state bucket
+  - CKV_AWS_338   # CloudWatch log retention >= 1 year (dev keeps shorter)
+  - CKV2_AWS_57   # Secrets Manager rotation (RDS master secret is AWS-managed)
+  - CKV_AWS_157   # RDS Multi-AZ
+  - CKV_AWS_118   # RDS enhanced monitoring
+  - CKV2_AWS_50   # ElastiCache Multi-AZ failover
+  - CKV2_AWS_3    # GuardDuty org/region scope (single account)
+  - CKV2_AWS_1    # NACL attached to subnets (isolated-tier NACL is intentionally detached until used)
+  - CKV_AWS_252   # CloudTrail SNS topic (findings route via EventBridge/Security Hub)
+  # --- Break-glass response Lambda: small, VPC-less on purpose ------------
+  - CKV_AWS_50    # Lambda X-Ray
+  - CKV_AWS_117   # Lambda in VPC (needs public AWS APIs; no NAT in this design)
+  - CKV_AWS_116   # Lambda DLQ
+  - CKV_AWS_115   # Lambda concurrency limit
+  - CKV_AWS_173   # Lambda env var encryption (no secrets in env)
+  - CKV_AWS_272   # Lambda code signing
+  # --- Intentional ---------------------------------------------------------
+  - CKV_AWS_273   # IAM user: the honeytoken user exists to be a decoy
+  - CKV_AWS_109   # KMS key policies: "*" resource means "this key"
+  - CKV_AWS_111   # (same)
+  - CKV_AWS_356   # (same)
+  # --- ACCEPTED RISK, tracked in the Week 3 report ------------------------
+  # The ALB serves plain HTTP: there is no domain or ACM certificate yet.
+  # Fix when a domain exists: HTTPS listener, HTTP->HTTPS redirect, TLS 1.2+
+  # policy, then drop these six.
+  - CKV_AWS_2     # ALB protocol HTTPS
+  - CKV_AWS_103   # ALB TLS >= 1.2
+  - CKV_AWS_378   # target group uses HTTP
+  - CKV2_AWS_20   # HTTP->HTTPS redirect
+  - CKV_AWS_260   # SG ingress 0.0.0.0/0 on 80 (ALB is the public entry point)
+  - CKV2_AWS_28   # WAF on public ALB (cost; revisit with HTTPS)

@@ -76,8 +76,7 @@ jobs:
       - name: Checkov (Terraform)
         run: |
           pip install checkov==3.2.334
-          checkov -d terraform --framework terraform --quiet --compact \
-            --skip-path terraform/lambda
+          checkov -d terraform --config-file .checkov.yaml --quiet --compact
       - name: Hadolint (payments-api)
         if: always()
         uses: hadolint/hadolint-action@v3.1.0
@@ -132,7 +131,10 @@ jobs:
             echo "AWS_ACCESS_KEY_ID=dast-not-real"
             echo "AWS_SECRET_ACCESS_KEY=dast-not-real"
           } >> .env
-          docker compose up -d --build
+          # Match ECS (ENVIRONMENT=dev): the compose default "development"
+          # turns on Flask debug mode, which ECS never runs.
+          printf 'services:\n  payments-api:\n    environment:\n      ENVIRONMENT: dev\n  kyc-api:\n    environment:\n      ENVIRONMENT: dev\n' > docker-compose.ci.yml
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
           for port in 8001 8002; do
             for i in $(seq 1 30); do
               curl -fs "http://localhost:${port}/health" && break
