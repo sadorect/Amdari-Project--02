@@ -3,6 +3,7 @@ import os
 from decimal import Decimal
 from flask import Flask, jsonify
 from flask.json.provider import DefaultJSONProvider
+from werkzeug.exceptions import HTTPException
 
 from app.routes.auth import auth_bp
 from app.routes.accounts import accounts_bp
@@ -58,6 +59,10 @@ def create_app():
         instead of being returned in the response body. The client gets a
         generic message and a request id it can quote to support, not the
         implementation details that used to come back in 'trace'."""
+        # Routing errors (404, 405, ...) are the client's mistake, not a server
+        # fault: keep their status code instead of reporting them as a 500.
+        if isinstance(e, HTTPException):
+            return jsonify({"error": e.name.lower()}), e.code
         app.logger.error("Unhandled exception: %s", e, exc_info=True)
         return jsonify({"error": "internal server error"}), 500
 
