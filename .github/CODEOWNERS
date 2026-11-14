@@ -1,0 +1,9 @@
+# Every change needs a review from the owner; the paths below are the ones
+# where a mistake is a security incident, so they are called out explicitly
+# (and can get additional owners as the team grows).
+*                       @sadorect
+/terraform/             @sadorect
+/.github/               @sadorect
+/scripts/               @sadorect
+/services/*/app/auth.py @sadorect
+/services/*/Dockerfile  @sadorect
