@@ -59,7 +59,7 @@ jobs:
           pip install pip-audit==2.7.3
           pip-audit -r services/${{ matrix.service }}/requirements.txt
       - name: Trivy filesystem scan (deps, secrets, misconfig)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           scan-type: fs
           scan-ref: services/${{ matrix.service }}
@@ -81,11 +81,13 @@ jobs:
           checkov -d terraform --framework terraform --quiet --compact \
             --skip-path terraform/lambda
       - name: Hadolint (payments-api)
+        if: always()
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: services/payments-api/Dockerfile
           failure-threshold: warning
       - name: Hadolint (kyc-api)
+        if: always()
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: services/kyc-api/Dockerfile
@@ -102,7 +104,7 @@ jobs:
       - name: Build image (local only, not pushed)
         run: docker build -t scan/${{ matrix.service }}:${{ github.sha }} services/${{ matrix.service }}
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: scan/${{ matrix.service }}:${{ github.sha }}
           severity: HIGH,CRITICAL

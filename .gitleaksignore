@@ -1,0 +1,8 @@
+# Historical findings accepted with a reason. Fingerprints, not paths, so a
+# new secret in the same file is still caught.
+#
+# V-CLD-04: inherited from the upstream repo's first commit. scripts/legacy_deploy.sh
+# no longer exists; history is deliberately not rewritten (docs/week1/04_remediation_report.md)
+# and these are case-study values, not live credentials.
+d43665a8b6c820c255041997034521db47cc3b61:scripts/legacy_deploy.sh:slack-webhook-url:18
+d43665a8b6c820c255041997034521db47cc3b61:scripts/legacy_deploy.sh:stripe-access-token:21
