@@ -16,7 +16,8 @@ RUN apt-get update \
     && pip install --no-cache-dir --upgrade pip
 
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt \
-    && pip uninstall -y setuptools wheel
+    && pip uninstall -y setuptools wheel \
+    && rm -rf /usr/local/lib/python3.11/site-packages/setuptools /usr/local/lib/python3.11/site-packages/pkg_resources /usr/local/lib/python3.11/site-packages/_distutils_hack
 
 COPY . .
 
