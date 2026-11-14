@@ -47,6 +47,7 @@ jobs:
     name: dependencies (${{ matrix.service }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service: [payments-api, kyc-api]
     steps:
@@ -94,6 +95,7 @@ jobs:
     name: image (trivy, ${{ matrix.service }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service: [payments-api, kyc-api]
     steps:

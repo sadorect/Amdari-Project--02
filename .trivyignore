@@ -1,0 +1,8 @@
+# Accepted findings. Each needs a reason; review when the base image is bumped.
+#
+# setuptools 70.3.0 (path traversal in PackageIndex.download). Trivy reports it
+# with no file path in both service images; removing setuptools and its vendored
+# tree in the Dockerfile does not clear it, so its origin is unresolved. The
+# flaw is in package-index downloads, which only run at install time, never in
+# the running service. Revisit with the next python:3.11-slim bump.
+CVE-2025-47273
