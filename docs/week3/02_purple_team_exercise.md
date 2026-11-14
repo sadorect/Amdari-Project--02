@@ -61,7 +61,7 @@ re-quarantined automatically:
 
 ```
 05:44:06.401Z  WARNING  HONEYTOKEN USED: user=svc-backup-sync event=GetCallerIdentity source_ip=90.204.82.163
-05:44:06.948Z  INFO     quarantined user=svc-backup-sync key=AKIA...IQKOU
+05:44:06.948Z  INFO     quarantined user=svc-backup-sync key=<redacted-access-key-id>
 ```
 
 Call-to-quarantine: well under 1 second once CloudTrail delivers the
