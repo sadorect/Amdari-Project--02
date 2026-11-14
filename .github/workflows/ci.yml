@@ -138,15 +138,15 @@ jobs:
 
       - name: Build image
         working-directory: services/${{ matrix.service }}
-        run: docker build -t ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }}:latest .
+        run: docker build -t ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }}:${{ github.sha }} .
 
       - name: Push image
         id: push
         # V-PIP-02: no SBOM (e.g. Syft) is generated or attached anywhere
         # in this job.
         run: |
-          docker push ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }}:latest
-          digest=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }}:latest)
+          docker push ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }}:${{ github.sha }}
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }}:${{ github.sha }})
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
@@ -206,7 +206,7 @@ jobs:
         # failure here too, on every push, not only on main.
         run: |
           chmod +x scripts/verify_image_signature.sh
-          scripts/verify_image_signature.sh ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }}:latest
+          scripts/verify_image_signature.sh ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }}:${{ github.sha }}
 
   deploy:
     name: deploy (${{ matrix.service }})
@@ -236,12 +236,7 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Verify image signature before deploying (fails closed)
-        run: |
-          chmod +x scripts/verify_image_signature.sh
-          scripts/verify_image_signature.sh ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }}:latest
-
-      - name: Force new ECS deployment
+      - name: Verify signature, register task definition by digest, deploy
         run: >
-          aws ecs update-service --cluster sentinelpay --force-new-deployment
-          --service ${{ matrix.service }}
+          scripts/deploy_ecs.sh sentinelpay ${{ matrix.service }}
+          ${{ env.ECR_REGISTRY }}/sentinelpay-${{ matrix.service }} ${{ github.sha }}

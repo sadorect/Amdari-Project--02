@@ -333,8 +333,9 @@ resource "aws_ecs_service" "this" {
     rollback = true
   }
 
-  # CI forces new deployments; Terraform should not fight it.
-  lifecycle { ignore_changes = [desired_count] }
+  # CI registers a task definition revision per commit and points the service
+  # at it; Terraform should not fight it.
+  lifecycle { ignore_changes = [desired_count, task_definition] }
 
   depends_on = [aws_lb_listener_rule.this]
 }

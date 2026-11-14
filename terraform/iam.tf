@@ -105,6 +105,25 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = [for s in aws_ecs_service.this : s.id]
   }
   statement {
+    # These two actions do not support resource-level permissions.
+    sid       = "EcsTaskDefinitions"
+    actions   = ["ecs:DescribeTaskDefinition", "ecs:RegisterTaskDefinition"]
+    resources = ["*"]
+  }
+  statement {
+    sid     = "PassTaskRoles"
+    actions = ["iam:PassRole"]
+    resources = concat(
+      [aws_iam_role.execution.arn],
+      [for r in aws_iam_role.task : r.arn],
+    )
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+  statement {
     sid       = "EcrRead"
     actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"]
