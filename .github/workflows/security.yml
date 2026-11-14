@@ -1,0 +1,168 @@
+# Week 3 / Phase 2: DevSecOps gates. Runs beside ci.yml (which keeps test,
+# build, cosign signing, Syft SBOM, signature verification and deploy) so a
+# scanner change can never touch the deploy path. Every job here is a
+# required status check on main (Phase 3). Nothing here uses AWS credentials.
+#
+# Gate policy: a job fails the build on HIGH/CRITICAL (or the tool's
+# equivalent). Accepted findings live in the tool's own ignore file with a
+# reason, never in a blanket continue-on-error.
+
+name: Security
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: a secret deleted in a later commit is still leaked
+      - name: Gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 \
+            detect --source /repo --redact --verbose --exit-code 1
+
+  sast:
+    name: sast (semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep:1.97.0 \
+            semgrep scan --error --metrics=off \
+            --config p/python --config p/flask --config p/owasp-top-ten \
+            --config p/secrets services/
+
+  dependencies:
+    name: dependencies (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [payments-api, kyc-api]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: pip-audit (known-vulnerable Python dependencies)
+        run: |
+          pip install pip-audit==2.7.3
+          pip-audit -r services/${{ matrix.service }}/requirements.txt
+      - uses: aquasecurity/setup-trivy@v0.2.6
+        with:
+          version: v0.76.2
+      - name: Trivy filesystem scan (deps, secrets, misconfig)
+        run: trivy fs --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 services/${{ matrix.service }}
+
+  iac:
+    name: iac (checkov, hadolint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Checkov (Terraform)
+        run: |
+          pip install checkov==3.2.334
+          checkov -d terraform --config-file .checkov.yaml --quiet --compact
+      - name: Hadolint (payments-api)
+        if: always()
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: services/payments-api/Dockerfile
+          failure-threshold: warning
+      - name: Hadolint (kyc-api)
+        if: always()
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: services/kyc-api/Dockerfile
+          failure-threshold: warning
+
+  image:
+    name: image (trivy, ${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [payments-api, kyc-api]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (local only, not pushed)
+        run: docker build -t scan/${{ matrix.service }}:${{ github.sha }} services/${{ matrix.service }}
+      - uses: aquasecurity/setup-trivy@v0.2.6
+        with:
+          version: v0.76.2
+      - name: Trivy image scan
+        run: trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 scan/${{ matrix.service }}:${{ github.sha }}
+      - name: Where the findings live (on failure)
+        if: failure()
+        run: |
+          trivy image --quiet --severity HIGH,CRITICAL --ignore-unfixed --format json \
+            scan/${{ matrix.service }}:${{ github.sha }} |
+            jq -r '.Results[]?.Vulnerabilities[]? | [.VulnerabilityID, .PkgName, .InstalledVersion, (.PkgPath // "os")] | @tsv'
+          trivy image --quiet --list-all-pkgs --format json scan/${{ matrix.service }}:${{ github.sha }} |
+            jq -r '.Results[]?.Packages[]? | select(.Name == "setuptools" or .Name == "wheel") | [.Name, .Version, (.FilePath // "-")] | @tsv'
+
+  dast:
+    name: dast (zap baseline)
+    # DAST needs the stack up, so it runs on PRs only; pushes already get
+    # every static gate above.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bring up the stack
+        run: |
+          ./scripts/generate_dev_jwt_keys.sh
+          {
+            echo "POSTGRES_PASSWORD=ci-dast-only"
+            echo "AWS_ACCESS_KEY_ID=dast-not-real"
+            echo "AWS_SECRET_ACCESS_KEY=dast-not-real"
+          } >> .env
+          # Match ECS (ENVIRONMENT=dev): the compose default "development"
+          # turns on Flask debug mode, which ECS never runs.
+          printf 'services:\n  payments-api:\n    environment:\n      ENVIRONMENT: dev\n  kyc-api:\n    environment:\n      ENVIRONMENT: dev\n' > docker-compose.ci.yml
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
+          for port in 8001 8002; do
+            for i in $(seq 1 30); do
+              curl -fs "http://localhost:${port}/health" && break
+              sleep 2
+            done
+            curl -fs "http://localhost:${port}/health"
+          done
+      - name: ZAP baseline (both services)
+        # Run the baseline script directly: the zaproxy action uploads its
+        # report through an artifact API that no longer works.
+        run: |
+          mkdir -p zap-out && chmod 777 zap-out
+          rc=0
+          for svc in payments-api:8001 kyc-api:8002; do
+            name="${svc%%:*}"; port="${svc##*:}"
+            cp .zap/rules.tsv zap-out/rules.tsv
+            docker run --rm --network host -v "$PWD/zap-out:/zap/wrk:rw" \
+              ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+              -t "http://localhost:${port}" -c rules.tsv \
+              -r "zap-${name}.html" -J "zap-${name}.json" || rc=$?
+          done
+          exit $rc
+      - name: Upload ZAP reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-reports
+          path: zap-out/
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --tail=100

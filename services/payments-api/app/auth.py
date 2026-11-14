@@ -64,6 +64,9 @@ def _is_legacy_md5_hash(stored_hash: str) -> bool:
 
 def verify_password(password: str, stored_hash: str) -> bool:
     if _is_legacy_md5_hash(stored_hash):
+        # Accepted: verify-only path for pre-V-APP-06 hashes. Nothing new is
+        # ever stored as MD5; needs_rehash() upgrades the hash on next login.
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5, python.lang.security.audit.md5-used-as-password.md5-used-as-password
         return hmac.compare_digest(hashlib.md5(password.encode()).hexdigest(), stored_hash)
     return check_password_hash(stored_hash, password)
 

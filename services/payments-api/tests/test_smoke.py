@@ -20,3 +20,26 @@ def test_health(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.get_json()["status"] == "ok"
+
+
+def test_unknown_path_is_404_not_500(client):
+    # Found by the ZAP baseline: the catch-all Exception handler was turning
+    # every routing error into a 500.
+    resp = client.get("/no-such-path")
+    assert resp.status_code == 404
+    assert resp.get_json() == {"error": "not found"}
+
+
+def test_wrong_method_is_405(client):
+    resp = client.post("/health")
+    assert resp.status_code == 405
+
+
+def test_security_headers_on_every_response(client):
+    # Found by the ZAP baseline: CSP and Permissions-Policy were missing.
+    for path in ("/health", "/no-such-path"):
+        h = client.get(path).headers
+        assert "default-src 'none'" in h["Content-Security-Policy"]
+        assert "geolocation=()" in h["Permissions-Policy"]
+        assert h["X-Content-Type-Options"] == "nosniff"
+        assert h["Cache-Control"] == "no-store"

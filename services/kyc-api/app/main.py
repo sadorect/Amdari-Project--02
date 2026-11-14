@@ -16,6 +16,16 @@ def create_app():
     def health():
         return jsonify({"status": "ok", "service": "kyc-api"})
 
+    @app.after_request
+    def add_security_headers(resp):
+        # API responses are data, never pages: lock down what a browser may do
+        # with them if one is ever pointed here.
+        resp.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'")
+        resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("Cache-Control", "no-store")
+        return resp
+
     return app
 
 
@@ -25,4 +35,7 @@ if __name__ == "__main__":
     # can expose source and execute code) is now gated on ENVIRONMENT,
     # not hardcoded on.
     debug_mode = os.environ.get("ENVIRONMENT", "development") == "development"
+    # Accepted: the container must listen on all interfaces; exposure is
+    # controlled by the ECS security group / compose port mapping.
+    # nosemgrep: python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host
     app.run(host="0.0.0.0", port=8002, debug=debug_mode)

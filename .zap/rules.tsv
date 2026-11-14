@@ -1,0 +1,3 @@
+# ZAP baseline overrides: rule id <TAB> IGNORE|WARN|FAIL <TAB> reason
+10036	IGNORE	Server header names Werkzeug: the containers still run Flask's dev server. Tracked: move CMD to gunicorn (already in requirements) and drop the header.
+10049	IGNORE	Non-storable content on JSON API responses is intended; nothing here should be cached.

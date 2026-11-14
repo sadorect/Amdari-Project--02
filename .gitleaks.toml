@@ -1,0 +1,11 @@
+# Gitleaks config. Extends the default ruleset; only the allowlist below is ours.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Throwaway test fixtures"
+# Each service's tests generate/embed a throwaway RSA keypair to sign JWTs in
+# pytest. It protects nothing: no environment trusts it.
+paths = [
+  '''services/(payments|kyc)-api/tests/conftest\.py''',
+]

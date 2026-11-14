@@ -7,7 +7,17 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
+# Patch base-image findings Trivy reports as fixed upstream: zlib1g (OS). The
+# wheel/setuptools build tooling is removed after the install below instead.
+# hadolint ignore=DL3008,DL3013
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --upgrade pip
+
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt \
+    && pip uninstall -y setuptools wheel \
+    && rm -rf /usr/local/lib/python3.11/site-packages/setuptools /usr/local/lib/python3.11/site-packages/pkg_resources /usr/local/lib/python3.11/site-packages/_distutils_hack
 
 COPY . .
 
