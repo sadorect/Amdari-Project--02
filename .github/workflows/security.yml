@@ -142,20 +142,27 @@ jobs:
             done
             curl -fs "http://localhost:${port}/health"
           done
-      - name: ZAP baseline (payments-api)
-        uses: zaproxy/action-baseline@v0.12.0
+      - name: ZAP baseline (both services)
+        # Run the baseline script directly: the zaproxy action uploads its
+        # report through an artifact API that no longer works.
+        run: |
+          mkdir -p zap-out && chmod 777 zap-out
+          rc=0
+          for svc in payments-api:8001 kyc-api:8002; do
+            name="${svc%%:*}"; port="${svc##*:}"
+            cp .zap/rules.tsv zap-out/rules.tsv
+            docker run --rm --network host -v "$PWD/zap-out:/zap/wrk:rw" \
+              ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+              -t "http://localhost:${port}" -c rules.tsv \
+              -r "zap-${name}.html" -J "zap-${name}.json" || rc=$?
+          done
+          exit $rc
+      - name: Upload ZAP reports
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          target: http://localhost:8001
-          rules_file_name: .zap/rules.tsv
-          artifact_name: zap-payments-api
-          allow_issue_writing: false
-      - name: ZAP baseline (kyc-api)
-        uses: zaproxy/action-baseline@v0.12.0
-        with:
-          target: http://localhost:8002
-          rules_file_name: .zap/rules.tsv
-          artifact_name: zap-kyc-api
-          allow_issue_writing: false
+          name: zap-reports
+          path: zap-out/
       - name: Stack logs on failure
         if: failure()
         run: docker compose logs --tail=100
