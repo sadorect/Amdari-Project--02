@@ -111,6 +111,8 @@ jobs:
           trivy image --quiet --severity HIGH,CRITICAL --ignore-unfixed --format json \
             scan/${{ matrix.service }}:${{ github.sha }} |
             jq -r '.Results[]?.Vulnerabilities[]? | [.VulnerabilityID, .PkgName, .InstalledVersion, (.PkgPath // "os")] | @tsv'
+          trivy image --quiet --list-all-pkgs --format json scan/${{ matrix.service }}:${{ github.sha }} |
+            jq -r '.Results[]?.Packages[]? | select(.Name == "setuptools" or .Name == "wheel") | [.Name, .Version, (.FilePath // "-")] | @tsv'
 
   dast:
     name: dast (zap baseline)
