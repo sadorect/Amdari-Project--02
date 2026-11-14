@@ -20,7 +20,7 @@ def create_app():
     def add_security_headers(resp):
         # API responses are data, never pages: lock down what a browser may do
         # with them if one is ever pointed here.
-        resp.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+        resp.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'")
         resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("Cache-Control", "no-store")
