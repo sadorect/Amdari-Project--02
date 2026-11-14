@@ -105,6 +105,12 @@ jobs:
           version: v0.76.2
       - name: Trivy image scan
         run: trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 scan/${{ matrix.service }}:${{ github.sha }}
+      - name: Where the findings live (on failure)
+        if: failure()
+        run: |
+          trivy image --quiet --severity HIGH,CRITICAL --ignore-unfixed --format json \
+            scan/${{ matrix.service }}:${{ github.sha }} |
+            jq -r '.Results[]?.Vulnerabilities[]? | [.VulnerabilityID, .PkgName, .InstalledVersion, (.PkgPath // "os")] | @tsv'
 
   dast:
     name: dast (zap baseline)
